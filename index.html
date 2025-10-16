@@ -1,0 +1,278 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Camera Grid</title>
+
+    <!-- Bootstrap 5.3.3 CSS from CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    
+    <!-- Google Fonts for a modern look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* 
+         * Custom styles for a minimal and beautiful interface.
+         * We use a dark theme, common for monitoring dashboards.
+        */
+        :root {
+            --grid-gap: 1rem;
+            --feed-bg: #212529; /* Darker background for the feeds */
+            --border-color: #495057;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: #181a1b; /* Slightly off-black for the main background */
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .main-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        /* The main grid container for camera feeds */
+        #camera-grid {
+            flex-grow: 1;
+            display: grid;
+            gap: var(--grid-gap);
+            padding: var(--grid-gap);
+            transition: all 0.3s ease-in-out;
+        }
+
+        /* Individual camera feed styling */
+        .camera-feed {
+            position: relative;
+            background-color: var(--feed-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            overflow: hidden;
+            /* Maintain a 16:9 aspect ratio for a video-like feel */
+            aspect-ratio: 16 / 9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s ease-out;
+        }
+        
+        .camera-feed:hover {
+            transform: scale(1.02);
+            border-color: #0d6efd;
+        }
+
+        /* Placeholder image styling */
+        .camera-feed img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.6;
+        }
+        
+        /* Overlay to display the camera number */
+        .camera-overlay {
+            position: absolute;
+            top: 0.5rem;
+            left: 0.5rem;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 0.25rem 0.6rem;
+            border-radius: 0.3rem;
+            font-weight: 500;
+            font-size: 0.9rem;
+            pointer-events: none; /* Allows clicks to pass through */
+        }
+
+        /* Custom focus rings for better accessibility */
+        .btn:focus-visible {
+            box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Main application container -->
+    <div class="main-content">
+        <!-- Header with title and control buttons -->
+        <header class="p-3 bg-dark border-bottom border-secondary-subtle shadow-sm">
+            <div class="container-fluid d-flex justify-content-between align-items-center">
+                <h1 class="h4 mb-0 text-light">Camera Dashboard</h1>
+                <div class="d-flex gap-2">
+                    <button id="reduce-cameras-btn" class="btn btn-outline-secondary" aria-label="Reduce number of cameras">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-dash-lg" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M2 8a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11A.5.5 0 0 1 2 8"/>
+                        </svg>
+                        Reduce
+                    </button>
+                    <button id="add-camera-btn" class="btn btn-primary" aria-label="Add a new camera">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-plus-lg" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2"/>
+                        </svg>
+                        Add Camera
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- The grid where camera feeds will be dynamically added -->
+        <main id="camera-grid" role="application" aria-live="polite" aria-atomic="true"></main>
+    </div>
+
+    <!-- Bootstrap 5.3.3 JS Bundle from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+
+    <script>
+        // Wait for the DOM to be fully loaded before running the script
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // --- CONFIGURATION & STATE ---
+            
+            // State variable to track the number of active cameras
+            let cameraCount = 1;
+            
+            // Constants for min/max cameras to prevent UI issues
+            const MIN_CAMERAS = 1;
+            const MAX_CAMERAS = 25; // A reasonable maximum for a single screen
+
+            // --- DOM ELEMENT REFERENCES ---
+
+            const cameraGrid = document.getElementById('camera-grid');
+            const addCameraButton = document.getElementById('add-camera-btn');
+            const reduceCameraButton = document.getElementById('reduce-cameras-btn');
+
+            // --- EMBEDDED DATA ---
+
+            // A placeholder SVG for the camera feed, embedded as a Data URL.
+            // This satisfies the requirement to embed attachments directly.
+            // Using encodeURIComponent ensures the SVG string is safe for a data URL.
+            const placeholderSvg = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 144">
+                    <defs>
+                        <filter id="noise" x="0" y="0" width="100%" height="100%">
+                            <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="4" stitchTiles="stitch"/>
+                        </filter>
+                    </defs>
+                    <rect width="256" height="144" fill="#111"/>
+                    <rect width="256" height="144" filter="url(#noise)" opacity="0.1"/>
+                    <text x="50%" y="50%" font-family="monospace, sans-serif" font-size="14" fill="#888" text-anchor="middle" dominant-baseline="central">
+                        CAM FEED OFFLINE
+                    </text>
+                </svg>`;
+            const placeholderDataUrl = `data:image/svg+xml,${encodeURIComponent(placeholderSvg)}`;
+            
+            // --- CORE FUNCTIONS ---
+
+            /**
+             * Creates a DOM element for a single camera feed.
+             * @param {number} id - The identifier for the camera.
+             * @returns {HTMLElement} The camera feed div element.
+             */
+            const createCameraElement = (id) => {
+                const feedWrapper = document.createElement('div');
+                feedWrapper.className = 'camera-feed';
+                feedWrapper.setAttribute('aria-label', `Camera feed ${id}`);
+                
+                feedWrapper.innerHTML = `
+                    <img src="${placeholderDataUrl}" alt="Camera ${id} feed placeholder">
+                    <div class="camera-overlay">CAM ${id}</div>
+                `;
+                return feedWrapper;
+            };
+
+            /**
+             * Updates the CSS Grid layout based on the number of cameras.
+             * This function is key to the automatic layout changes.
+             * It calculates a near-square grid layout.
+             */
+            const updateGridLayout = () => {
+                if (cameraCount === 0) {
+                    cameraGrid.style.gridTemplateColumns = '1fr';
+                    return;
+                }
+                // Calculate the number of columns to make the grid as square as possible
+                const columns = Math.ceil(Math.sqrt(cameraCount));
+                cameraGrid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
+            };
+
+            /**
+             * Updates the enabled/disabled state of the control buttons.
+             * This provides basic error handling by preventing users from
+             * going outside the defined min/max camera limits.
+             */
+            const updateButtonStates = () => {
+                addCameraButton.disabled = cameraCount >= MAX_CAMERAS;
+                reduceCameraButton.disabled = cameraCount <= MIN_CAMERAS;
+
+                // Add Bootstrap 'disabled' class for proper styling
+                addCameraButton.classList.toggle('disabled', addCameraButton.disabled);
+                reduceCameraButton.classList.toggle('disabled', reduceCameraButton.disabled);
+            };
+
+            /**
+             * Main rendering function.
+             * It clears the grid, creates and appends new camera feeds,
+             * and updates the layout and button states.
+             */
+            const render = () => {
+                // Clear any existing camera feeds from the grid
+                cameraGrid.innerHTML = '';
+
+                // Create and append the required number of camera feeds
+                for (let i = 1; i <= cameraCount; i++) {
+                    const cameraElement = createCameraElement(i);
+                    cameraGrid.appendChild(cameraElement);
+                }
+
+                // Update layout and controls after rendering feeds
+                updateGridLayout();
+                updateButtonStates();
+            };
+
+            // --- EVENT HANDLERS ---
+            
+            /**
+             * Handles the 'Add Camera' button click.
+             * Increments the camera count if not at max, then re-renders.
+             */
+            const handleAddCamera = () => {
+                if (cameraCount < MAX_CAMERAS) {
+                    cameraCount++;
+                    render();
+                }
+            };
+
+            /**
+             * Handles the 'Reduce Cameras' button click.
+             * Decrements the camera count if not at min, then re-renders.
+             */
+            const handleReduceCamera = () => {
+                if (cameraCount > MIN_CAMERAS) {
+                    cameraCount--;
+                    render();
+                }
+            };
+
+            // --- INITIALIZATION ---
+
+            // Attach event listeners to the buttons
+            addCameraButton.addEventListener('click', handleAddCamera);
+            reduceCameraButton.addEventListener('click', handleReduceCamera);
+
+            // Perform the initial render to display the first camera feed
+            render();
+        });
+    </script>
+</body>
+</html>
