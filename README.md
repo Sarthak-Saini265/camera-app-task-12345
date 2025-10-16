@@ -2,7 +2,7 @@
 
 ## Summary
 
-Create a minimal but beautiful single page web-app with 2 buttons. Now it add cameras screens to the window. It initially starts with 1 screen displaying the camera feed, then as the number of cameras increase the camera feeds keep getting smaller and are placed on the screen accordingly
+[Updated] Update the app to request camera permission from the user first. Show a proper permission request prompt, and only display the camera feeds after the user grants permission. If permission is denied, show a friendly error message asking the user to enable camera access.
 
 ## Features
 
@@ -12,6 +12,8 @@ This application was automatically generated to meet the following requirements:
 - Has 'add camera' button
 - Has 'reduce cameras' button
 - Layout of camera feeds change automatically as required
+- Requests camera permission before accessing camera
+- Shows error message if permission denied
 
 ## Setup
 
