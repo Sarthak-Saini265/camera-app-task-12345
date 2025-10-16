@@ -43,6 +43,16 @@
             flex-direction: column;
             overflow: hidden;
         }
+
+        /* Centered container for prompts and errors */
+        .centered-container {
+            display: flex;
+            flex-grow: 1;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2rem;
+        }
         
         /* The main grid container for camera feeds */
         #camera-grid {
@@ -73,12 +83,11 @@
             border-color: #0d6efd;
         }
 
-        /* Placeholder image styling */
-        .camera-feed img {
+        /* Live video feed styling */
+        .camera-feed video {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            opacity: 0.6;
         }
         
         /* Overlay to display the camera number */
@@ -103,8 +112,36 @@
 </head>
 <body>
 
-    <!-- Main application container -->
-    <div class="main-content">
+    <!-- Permission Prompt - Shown initially -->
+    <div id="permission-prompt" class="centered-container">
+        <div class="p-5 bg-dark rounded-3 shadow">
+            <h1 class="text-body-emphasis">Camera Access Required</h1>
+            <p class="col-lg-8 mx-auto fs-5 text-muted">
+                This application needs access to your camera to display the video feeds. Please grant permission when prompted.
+            </p>
+            <div class="d-inline-flex gap-2 mb-5">
+                <button id="request-permission-btn" class="d-inline-flex align-items-center btn btn-primary btn-lg px-4 rounded-pill" type="button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-camera-video-fill me-2" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M0 5a2 2 0 0 1 2-2h7.5a2 2 0 0 1 1.983 1.738l3.11-1.382A1 1 0 0 1 16 4.269v7.462a1 1 0 0 1-1.406.913l-3.11-1.382A2 2 0 0 1 9.5 13H2a2 2 0 0 1-2-2z"/>
+                    </svg>
+                    Enable Camera
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Permission Denied Error - Hidden by default -->
+    <div id="permission-denied" class="centered-container d-none">
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Camera Permission Denied!</h4>
+            <p>You have denied camera access. This application cannot function without it.</p>
+            <hr>
+            <p class="mb-0">To use this dashboard, please enable camera permissions for this site in your browser settings and then refresh the page.</p>
+        </div>
+    </div>
+
+    <!-- Main application container - Hidden by default -->
+    <div class="main-content d-none">
         <!-- Header with title and control buttons -->
         <header class="p-3 bg-dark border-bottom border-secondary-subtle shadow-sm">
             <div class="container-fluid d-flex justify-content-between align-items-center">
@@ -139,43 +176,27 @@
             
             // --- CONFIGURATION & STATE ---
             
-            // State variable to track the number of active cameras
             let cameraCount = 1;
+            let cameraStream = null; // To hold the MediaStream object from the camera
             
-            // Constants for min/max cameras to prevent UI issues
             const MIN_CAMERAS = 1;
-            const MAX_CAMERAS = 25; // A reasonable maximum for a single screen
+            const MAX_CAMERAS = 25;
 
             // --- DOM ELEMENT REFERENCES ---
+
+            const permissionPrompt = document.getElementById('permission-prompt');
+            const permissionDeniedError = document.getElementById('permission-denied');
+            const requestPermissionButton = document.getElementById('request-permission-btn');
+            const mainContent = document.querySelector('.main-content');
 
             const cameraGrid = document.getElementById('camera-grid');
             const addCameraButton = document.getElementById('add-camera-btn');
             const reduceCameraButton = document.getElementById('reduce-cameras-btn');
 
-            // --- EMBEDDED DATA ---
-
-            // A placeholder SVG for the camera feed, embedded as a Data URL.
-            // This satisfies the requirement to embed attachments directly.
-            // Using encodeURIComponent ensures the SVG string is safe for a data URL.
-            const placeholderSvg = `
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 144">
-                    <defs>
-                        <filter id="noise" x="0" y="0" width="100%" height="100%">
-                            <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="4" stitchTiles="stitch"/>
-                        </filter>
-                    </defs>
-                    <rect width="256" height="144" fill="#111"/>
-                    <rect width="256" height="144" filter="url(#noise)" opacity="0.1"/>
-                    <text x="50%" y="50%" font-family="monospace, sans-serif" font-size="14" fill="#888" text-anchor="middle" dominant-baseline="central">
-                        CAM FEED OFFLINE
-                    </text>
-                </svg>`;
-            const placeholderDataUrl = `data:image/svg+xml,${encodeURIComponent(placeholderSvg)}`;
-            
             // --- CORE FUNCTIONS ---
 
             /**
-             * Creates a DOM element for a single camera feed.
+             * Creates a DOM element for a single camera feed with a live video stream.
              * @param {number} id - The identifier for the camera.
              * @returns {HTMLElement} The camera feed div element.
              */
@@ -184,68 +205,60 @@
                 feedWrapper.className = 'camera-feed';
                 feedWrapper.setAttribute('aria-label', `Camera feed ${id}`);
                 
-                feedWrapper.innerHTML = `
-                    <img src="${placeholderDataUrl}" alt="Camera ${id} feed placeholder">
-                    <div class="camera-overlay">CAM ${id}</div>
-                `;
+                const video = document.createElement('video');
+                // Necessary attributes for autoplay in modern browsers
+                video.autoplay = true;
+                video.muted = true;
+                video.playsInline = true;
+                video.srcObject = cameraStream;
+                video.play().catch(error => console.error("Video play failed:", error));
+
+                const overlay = document.createElement('div');
+                overlay.className = 'camera-overlay';
+                overlay.textContent = `CAM ${id}`;
+
+                feedWrapper.appendChild(video);
+                feedWrapper.appendChild(overlay);
+                
                 return feedWrapper;
             };
 
             /**
              * Updates the CSS Grid layout based on the number of cameras.
-             * This function is key to the automatic layout changes.
-             * It calculates a near-square grid layout.
              */
             const updateGridLayout = () => {
-                if (cameraCount === 0) {
-                    cameraGrid.style.gridTemplateColumns = '1fr';
-                    return;
-                }
-                // Calculate the number of columns to make the grid as square as possible
                 const columns = Math.ceil(Math.sqrt(cameraCount));
                 cameraGrid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
             };
 
             /**
              * Updates the enabled/disabled state of the control buttons.
-             * This provides basic error handling by preventing users from
-             * going outside the defined min/max camera limits.
              */
             const updateButtonStates = () => {
                 addCameraButton.disabled = cameraCount >= MAX_CAMERAS;
                 reduceCameraButton.disabled = cameraCount <= MIN_CAMERAS;
 
-                // Add Bootstrap 'disabled' class for proper styling
                 addCameraButton.classList.toggle('disabled', addCameraButton.disabled);
                 reduceCameraButton.classList.toggle('disabled', reduceCameraButton.disabled);
             };
 
             /**
              * Main rendering function.
-             * It clears the grid, creates and appends new camera feeds,
-             * and updates the layout and button states.
              */
             const render = () => {
-                // Clear any existing camera feeds from the grid
                 cameraGrid.innerHTML = '';
 
-                // Create and append the required number of camera feeds
                 for (let i = 1; i <= cameraCount; i++) {
                     const cameraElement = createCameraElement(i);
                     cameraGrid.appendChild(cameraElement);
                 }
 
-                // Update layout and controls after rendering feeds
                 updateGridLayout();
                 updateButtonStates();
             };
 
             // --- EVENT HANDLERS ---
             
-            /**
-             * Handles the 'Add Camera' button click.
-             * Increments the camera count if not at max, then re-renders.
-             */
             const handleAddCamera = () => {
                 if (cameraCount < MAX_CAMERAS) {
                     cameraCount++;
@@ -253,10 +266,6 @@
                 }
             };
 
-            /**
-             * Handles the 'Reduce Cameras' button click.
-             * Decrements the camera count if not at min, then re-renders.
-             */
             const handleReduceCamera = () => {
                 if (cameraCount > MIN_CAMERAS) {
                     cameraCount--;
@@ -264,14 +273,43 @@
                 }
             };
 
+            /**
+             * Initializes the main application after permission is granted.
+             */
+            const initializeApp = () => {
+                // Hide prompt and show the main dashboard
+                permissionPrompt.classList.add('d-none');
+                mainContent.classList.remove('d-none');
+                
+                // Attach event listeners to the control buttons
+                addCameraButton.addEventListener('click', handleAddCamera);
+                reduceCameraButton.addEventListener('click', handleReduceCamera);
+
+                // Perform the initial render
+                render();
+            };
+
+            /**
+             * Requests camera permission from the user.
+             */
+            const requestCameraPermission = async () => {
+                try {
+                    // Request video stream from the user's camera
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    cameraStream = stream; // Store the stream globally
+                    initializeApp(); // If successful, start the app
+                } catch (error) {
+                    console.error("Error accessing camera:", error);
+                    // If permission is denied or another error occurs, show the error message
+                    permissionPrompt.classList.add('d-none');
+                    permissionDeniedError.classList.remove('d-none');
+                }
+            };
+
             // --- INITIALIZATION ---
 
-            // Attach event listeners to the buttons
-            addCameraButton.addEventListener('click', handleAddCamera);
-            reduceCameraButton.addEventListener('click', handleReduceCamera);
-
-            // Perform the initial render to display the first camera feed
-            render();
+            // Attach event listener to the permission button
+            requestPermissionButton.addEventListener('click', requestCameraPermission);
         });
     </script>
 </body>
